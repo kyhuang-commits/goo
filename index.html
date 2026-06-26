@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>夢幻飛舞紙片抽籤器</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome 圖示 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #0b0f19;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        /* 隱藏滾動條 */
+        ::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* 霓虹發光效果 */
+        .neon-glow {
+            text-shadow: 0 0 10px rgba(99, 102, 241, 0.8), 0 0 20px rgba(99, 102, 241, 0.4);
+        }
+
+        .neon-border {
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.3);
+        }
+
+        /* 玻璃擬態 */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* 縮放動畫 */
+        @keyframes pulse-slow {
+            0%, 100% { transform: scale(1); opacity: 0.9; }
+            50% { transform: scale(1.05); opacity: 1; }
+        }
+
+        .pulse-effect {
+            animation: pulse-slow 3s infinite;
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen text-slate-100 flex items-center justify-center">
+
+    <!-- 背景 Canvas (負責飛舞紙片與粒子效果) -->
+    <canvas id="gameCanvas" class="absolute inset-0 w-full h-full z-0 block"></canvas>
+
+    <!-- 頂部標題與快速狀態 -->
+    <div class="absolute top-6 left-6 z-10 flex items-center space-x-4 pointer-events-none">
+        <div class="bg-indigo-600/20 border border-indigo-500/30 px-4 py-2 rounded-full flex items-center space-x-2 backdrop-blur-md">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+            <span class="text-xs font-semibold tracking-wider text-indigo-300 uppercase">夢幻紙片抽籤系統</span>
+        </div>
+    </div>
+
+    <!-- 右上角控制按鈕 (開關控制台) -->
+    <div class="absolute top-6 right-6 z-20 flex space-x-2">
+        <button id="toggleConfigBtn" class="bg-slate-800/80 hover:bg-indigo-600 border border-slate-700 hover:border-indigo-500 transition-all duration-300 p-3 rounded-full shadow-lg text-white" title="名單設定">
+            <i class="fas fa-cog text-lg"></i>
+        </button>
+        <button id="toggleSoundBtn" class="bg-slate-800/80 hover:bg-slate-700 border border-slate-700 transition-all duration-300 p-3 rounded-full shadow-lg text-white" title="切換音效">
+            <i id="soundIcon" class="fas fa-volume-up text-lg text-emerald-400"></i>
+        </button>
+        <button id="helpBtn" class="bg-slate-800/80 hover:bg-slate-700 border border-slate-700 transition-all duration-300 p-3 rounded-full shadow-lg text-white" title="操作說明">
+            <i class="fas fa-question-circle text-lg"></i>
+        </button>
+    </div>
+
+    <!-- 左下角統計資訊 -->
+    <div class="absolute bottom-6 left-6 z-10 glass-panel px-4 py-2 rounded-xl pointer-events-none text-xs text-slate-400 space-y-1">
+        <div>目前名單總數: <span id="statsTotal" class="text-indigo-400 font-bold">0</span> 人</div>
+        <div>空中飛舞紙片: <span id="statsFlying" class="text-emerald-400 font-bold">0</span> 張</div>
+        <div>已被抽中人數: <span id="statsDrawn" class="text-pink-400 font-bold">0</span> 人</div>
+    </div>
+
+    <!-- 浮動提示引導 (當沒人被抽中，且有紙片飛舞時顯示) -->
+    <div id="guideToast" class="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 bg-slate-900/90 border border-slate-800 text-slate-300 px-6 py-3 rounded-full shadow-2xl pointer-events-none flex items-center space-x-3 transition-all duration-500 transform translate-y-20 opacity-0">
+        <i class="fas fa-hand-pointer text-indigo-400 animate-bounce"></i>
+        <span>隨意點擊空中飛舞的紙片即可進行抽籤！</span>
+    </div>
+
+    <!-- 設定面板 (Modal) -->
+    <div id="configModal" class="fixed inset-0 z-30 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm transition-all duration-300 opacity-0 pointer-events-none">
+        <div class="glass-panel w-full max-w-lg rounded-2xl shadow-2xl border border-slate-700/50 overflow-hidden transform scale-95 transition-all duration-300 max-h-[90vh] flex flex-col">
+            <!-- 標題 -->
+            <div class="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-950/40">
+                <h2 class="text-xl font-bold text-white flex items-center space-x-2">
+                    <i class="fas fa-users text-indigo-500"></i>
+                    <span>抽籤名單設定</span>
+                </h2>
+                <button id="closeConfigBtn" class="text-slate-400 hover:text-white transition-colors">
+                    <i class="fas fa-times text-lg"></i>
+                </button>
+            </div>
+            
+            <!-- 內容區 -->
+            <div class="p-6 space-y-4 overflow-y-auto flex-1">
+                <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-2">輸入成員名單 (支援換行、逗號 `,` 或空格分隔)</label>
+                    <textarea id="namesInput" rows="8" class="w-full bg-slate-950/60 border border-slate-700 rounded-xl p-4 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none transition-all text-sm font-mono" placeholder="陳小明&#10;王大同,李美玲 林志豪&#10;張雅婷"></textarea>
+                </div>
+
+                <div class="flex items-center justify-between text-xs text-slate-400 bg-slate-900/40 p-3 rounded-lg border border-slate-800/80">
+                    <span>提示: 重重複的名字會自動篩選合併。</span>
+                    <button id="loadDemoBtn" class="text-indigo-400 hover:text-indigo-300 font-semibold flex items-center space-x-1">
+                        <i class="fas fa-magic"></i> <span>載入範例名單</span>
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-slate-900/40 p-3 rounded-lg border border-slate-800/80">
+                        <label class="block text-xs font-semibold text-slate-400 mb-1">紙片飛行速度</label>
+                        <input type="range" id="speedSlider" min="1" max="10" value="3" class="w-full accent-indigo-500 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                    <div class="bg-slate-900/40 p-3 rounded-lg border border-slate-800/80">
+                        <label class="block text-xs font-semibold text-slate-400 mb-1">字體大小調整</label>
+                        <input type="range" id="fontSizeSlider" min="12" max="24" value="16" class="w-full accent-indigo-500 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                </div>
+
+                <!-- 已抽過的名單重置 -->
+                <div class="flex justify-between items-center py-2 border-t border-slate-800/60">
+                    <span class="text-xs text-slate-400">已被抽中歷史名單</span>
+                    <button id="resetHistoryBtn" class="text-xs text-rose-400 hover:text-rose-300 font-semibold transition-colors">
+                        <i class="fas fa-trash-alt mr-1"></i> 清除歷史紀錄
+                    </button>
+                </div>
+                <div id="historyContainer" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-2 bg-slate-950/40 rounded-lg text-xs">
+                    <span class="text-slate-500 italic">目前沒有歷史紀錄</span>
+                </div>
+            </div>
+
+            <!-- 底部按鈕 -->
+            <div class="p-6 border-t border-slate-800 bg-slate-950/40 flex space-x-3">
+                <button id="applyNamesBtn" class="flex-1 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold py-3 px-4 rounded-xl transition-all duration-150 shadow-lg shadow-indigo-600/20 flex items-center justify-center space-x-2">
+                    <i class="fas fa-check-circle"></i>
+                    <span>套用名單並重置</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 說明 Modal -->
+    <div id="helpModal" class="fixed inset-0 z-30 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm transition-all duration-300 opacity-0 pointer-events-none">
+        <div class="glass-panel w-full max-w-md rounded-2xl shadow-2xl border border-slate-700/50 p-6 space-y-4 text-center transform scale-95 transition-all duration-300">
+            <div class="w-16 h-16 bg-indigo-600/20 text-indigo-400 rounded-full flex items-center justify-center mx-auto text-3xl">
+                <i class="fas fa-info-circle"></i>
+            </div>
+            <h3 class="text-xl font-bold text-white">操作說明</h3>
+            <div class="text-sm text-slate-300 text-left space-y-3 bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+                <p class="flex items-start"><span class="bg-indigo-500 text-white w-5 h-5 rounded-full inline-flex items-center justify-center text-xs font-bold mr-2 mt-0.5 shrink-0">1</span><span>點擊右上角 <i class="fas fa-cog text-indigo-400 mx-1"></i> 設定名單，您可以貼上自己的名單。</span></p>
+                <p class="flex items-start"><span class="bg-indigo-500 text-white w-5 h-5 rounded-full inline-flex items-center justify-center text-xs font-bold mr-2 mt-0.5 shrink-0">2</span><span>畫面上會出現寫著名字的紙片漫天飛舞。</span></p>
+                <p class="flex items-start"><span class="bg-indigo-500 text-white w-5 h-5 rounded-full inline-flex items-center justify-center text-xs font-bold mr-2 mt-0.5 shrink-0">3</span><span><b>當滑鼠靠近紙片時，紙片會自動減速，更方便您精準點擊！</b></span></p>
+                <p class="flex items-start"><span class="bg-indigo-500 text-white w-5 h-5 rounded-full inline-flex items-center justify-center text-xs font-bold mr-2 mt-0.5 shrink-0">4</span><span>被抽中的紙片會移到正中央放大，並有慶祝特效與音效！</span></p>
+                <p class="flex items-start"><span class="bg-indigo-500 text-white w-5 h-5 rounded-full inline-flex items-center justify-center text-xs font-bold mr-2 mt-0.5 shrink-0">5</span><span>點擊畫面上任何地方，即可關閉抽中結果，繼續抽下一個。</span></p>
+            </div>
+            <button id="closeHelpBtn" class="w-full bg-slate-800 hover:bg-slate-700 text-white font-semibold py-2.5 rounded-xl transition-all">
+                我知道了
+            </button>
+        </div>
+    </div>
+
+    <!-- 中籤結果呈現畫面 (得獎 Modal) -->
+    <div id="resultModal" class="fixed inset-0 z-40 flex flex-col items-center justify-center p-4 bg-black/85 backdrop-blur-md transition-all duration-500 opacity-0 pointer-events-none">
+        
+        <!-- 煙火與光芒背景效果 -->
+        <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.15)_0%,transparent_70%)] animate-pulse pointer-events-none"></div>
+        
+        <!-- 中籤內容包裝器 -->
+        <div id="resultCard" class="relative z-10 w-full max-w-lg text-center transform scale-50 opacity-0 transition-all duration-700 ease-out flex flex-col items-center">
+            
+            <!-- 閃亮皇冠 -->
+            <div class="text-yellow-400 text-6xl mb-4 filter drop-shadow-[0_0_15px_rgba(250,204,21,0.6)] animate-bounce">
+                <i class="fas fa-crown"></i>
+            </div>
+            
+            <p class="text-indigo-300 font-bold tracking-widest uppercase text-sm md:text-base mb-2">CONGRATULATIONS</p>
+            <h4 class="text-2xl md:text-3xl font-extrabold text-white mb-6 tracking-wide">恭喜幸運得主！</h4>
+            
+            <!-- 巨型名字展示卡 (帶有流光邊框) -->
+            <div class="relative group max-w-full">
+                <div class="absolute -inset-1.5 bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 rounded-3xl blur-xl opacity-75 group-hover:opacity-100 transition duration-1000 group-hover:duration-200 animate-tilt"></div>
+                <div class="relative bg-slate-900 border border-slate-700/50 px-10 py-8 md:px-16 md:py-12 rounded-3xl shadow-2xl flex flex-col items-center justify-center min-w-[280px] max-w-md">
+                    <span id="winnerName" class="text-4xl md:text-6xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-white via-indigo-200 to-slate-200 filter drop-shadow-[0_2px_10px_rgba(255,255,255,0.15)] break-all leading-tight">
+                        王大同
+                    </span>
+                </div>
+            </div>
+
+            <!-- 下方引導提示 -->
+            <p class="mt-12 text-slate-400 text-sm animate-pulse flex items-center space-x-2">
+                <i class="fas fa-mouse-pointer"></i>
+                <span>點擊任意處返回抽籤畫面</span>
+            </p>
+        </div>
+    </div>
+
+    <!-- 網頁主要腳本 -->
+    <script>
+        // --- 全局狀態管理 ---
+        const state = {
+            names: [],            // 待抽名單
+            history: [],          // 已抽中名單
+            papers: [],           // 目前在畫面上飛舞的紙片
+            confetti: [],         // 抽中時灑落的彩碎紙
+            soundEnabled: true,   // 音效開關
+            isDrawing: false,     // 是否正處於抽出展示中
+            speedMultiplier: 0.7, // 預設速度乘數 (已調慢：原為 1.5)
+            fontSize: 16,         // 紙片字體大小
+            winner: null,         // 當前中獎者
+            canvasWidth: window.innerWidth,
+            canvasHeight: window.innerHeight,
+        };
+
+        // --- 預設範例名單 ---
+        const DEMO_NAMES = [
+            "王大同", "李美玲", "陳志豪", "張雅婷", "林宇軒", 
+            "黃佳穎", "曾冠宇", "劉子晴", "吳建宏", "蔡依婷", 
+            "鄭雅惠", "謝承翰", "許淑芬", "洪志強", "邱怡君", 
+            "徐宇翔", "賴美惠", "周冠廷", "石小明", "趙麗華",
+            "郭廷宇", "高美琪", "葉建智", "潘冠德", "蘇怡婷",
+            "何俊宏", "莊雅芳", "蕭宇豪", "彭美玲", "沈冠宇"
+        ];
+
+        // --- 獲取 DOM 元素 ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const statsTotal = document.getElementById('statsTotal');
+        const statsFlying = document.getElementById('statsFlying');
+        const statsDrawn = document.getElementById('statsDrawn');
+        const guideToast = document.getElementById('guideToast');
+        
+        // Modals
+        const configModal = document.getElementById('configModal');
+        const helpModal = document.getElementById('helpModal');
+        const resultModal = document.getElementById('resultModal');
+        const resultCard = document.getElementById('resultCard');
+        const winnerName = document.getElementById('winnerName');
+        const historyContainer = document.getElementById('historyContainer');
+        
+        // Buttons & Sliders
+        const toggleConfigBtn = document.getElementById('toggleConfigBtn');
+        const closeConfigBtn = document.getElementById('closeConfigBtn');
+        const toggleSoundBtn = document.getElementById('toggleSoundBtn');
+        const soundIcon = document.getElementById('soundIcon');
+        const helpBtn = document.getElementById('helpBtn');
+        const closeHelpBtn = document.getElementById('closeHelpBtn');
+        const loadDemoBtn = document.getElementById('loadDemoBtn');
+        const applyNamesBtn = document.getElementById('applyNamesBtn');
+        const namesInput = document.getElementById('namesInput');
+        const speedSlider = document.getElementById('speedSlider');
+        const fontSizeSlider = document.getElementById('fontSizeSlider');
+        const resetHistoryBtn = document.getElementById('resetHistoryBtn');
+
+        // --- Web Audio API 音效合成器 (免外部資源) ---
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        function playSound(type) {
+            if (!state.soundEnabled) return;
+            try {
+                // 恢復音訊上下文 (瀏覽器安全性限制)
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+
+                if (type === 'click') {
+                    // 輕脆點擊音
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.08);
+                    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.08);
+                } 
+                else if (type === 'hover') {
+                    // 滑過紙片微弱氣流聲
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(150, audioCtx.currentTime + 0.05);
+                    gain.gain.setValueAtTime(0.02, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.05);
+                }
+                else if (type === 'win') {
+                    // 絢麗喜慶得獎音效
+                    const now = audioCtx.currentTime;
+                    // 音效 1: 向上滑音
+                    const osc1 = audioCtx.createOscillator();
+                    const gain1 = audioCtx.createGain();
+                    osc1.connect(gain1);
+                    gain1.connect(audioCtx.destination);
+                    osc1.type = 'sine';
+                    osc1.frequency.setValueAtTime(261.63, now); // C4
+                    osc1.frequency.exponentialRampToValueAtTime(523.25, now + 0.15); // C5
+                    osc1.frequency.exponentialRampToValueAtTime(1046.50, now + 0.4); // C6
+                    gain1.gain.setValueAtTime(0.15, now);
+                    gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
+                    osc1.start();
+                    osc1.stop(now + 0.5);
+
+                    // 音效 2: 喜慶和弦/琶音
+                    const notes = [523.25, 659.25, 783.99, 1046.50]; // C, E, G, C
+                    notes.forEach((freq, idx) => {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.type = 'triangle';
+                        osc.frequency.setValueAtTime(freq, now + 0.1 + (idx * 0.08));
+                        gain.gain.setValueAtTime(0.1, now + 0.1 + (idx * 0.08));
+                        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5 + (idx * 0.08));
+                        osc.start(now + 0.1 + (idx * 0.08));
+                        osc.stop(now + 0.6 + (idx * 0.08));
+                    });
+                }
+            } catch (e) {
+                console.log("Audio play blocked/error:", e);
+            }
+        }
+
+        // --- 物理學/視覺：飛舞紙片類別 (Paper) ---
+        class Paper {
+            constructor(name, x, y) {
+                this.name = name;
+                this.x = x || Math.random() * state.canvasWidth;
+                this.y = y || Math.random() * state.canvasHeight;
+                
+                // 尺寸自適應字體長度
+                this.paddingX = 24;
+                this.paddingY = 12;
+                this.fontSize = state.fontSize;
+                this.updateDimensions();
+
+                // 隨機初始物理速度 (模擬風阻和飄動) - 已將基礎物理極速從 2.5 降低為 1.5
+                this.vx = (Math.random() - 0.5) * 1.5 * state.speedMultiplier;
+                this.vy = (Math.random() - 0.5) * 1.5 * state.speedMultiplier;
+                
+                // 3D 旋轉變量
+                this.angle = Math.random() * Math.PI * 2;       // 2D平面旋轉
+                this.angleX = Math.random() * Math.PI * 2;      // X軸旋轉 (模擬正反面翻轉)
+                this.angleY = Math.random() * Math.PI * 2;      // Y軸旋轉
+                
+                this.va = (Math.random() - 0.5) * 0.015;         // 旋轉角速度 (稍微調慢)
+                this.vax = (Math.random() - 0.5) * 0.035;
+                this.vay = (Math.random() - 0.5) * 0.025;
+
+                // 風力擾動 (正弦波隨機起點)
+                this.windPhase = Math.random() * 100;
+                this.windSpeed = 0.005 + Math.random() * 0.01; // 微風干擾
+
+                // 隨機紙片優雅柔和色調
+                const hue = Math.floor(Math.random() * 360);
+                this.color = `hsla(${hue}, 85%, 65%, 0.85)`;
+                this.borderColor = `hsla(${hue}, 90%, 50%, 0.9)`;
+                this.shadowColor = `hsla(${hue}, 80%, 40%, 0.4)`;
+                
+                this.isHovered = false;
+            }
+
+            updateDimensions() {
+                ctx.font = `bold ${this.fontSize}px 'Noto Sans TC'`;
+                const textMetrics = ctx.measureText(this.name);
+                this.width = textMetrics.width + this.paddingX * 2;
+                this.height = this.fontSize + this.paddingY * 2;
+            }
+
+            update() {
+                // 1. 風力微擾 (隨時間自然搖擺)
+                this.windPhase += this.windSpeed;
+                const windX = Math.sin(this.windPhase) * 0.08;
+                const windY = Math.cos(this.windPhase * 0.7) * 0.05;
+                
+                this.vx += windX;
+                this.vy += windY;
+
+                // 2. 移動並限制最大速度避免飛走
+                const maxVel = 5 * state.speedMultiplier;
+                this.vx = Math.max(-maxVel, Math.min(maxVel, this.vx));
+                this.vy = Math.max(-maxVel, Math.min(maxVel, this.vy));
+
+                // 3. 【全新機制】滑鼠懸停時自動產生阻尼減速效果 (便於點擊)
+                const speedFactor = this.isHovered ? 0.3 : 1.0; 
+
+                this.x += this.vx * speedFactor;
+                this.y += this.vy * speedFactor;
+
+                // 旋轉也同步減速，讓懸停時更顯安靜優雅
+                this.angle += this.va * speedFactor;
+                this.angleX += this.vax * speedFactor;
+                this.angleY += this.vay * speedFactor;
+
+                // 4. 碰撞邊界彈回 (考慮邊緣寬度避免卡在外面)
+                const margin = 20;
+                if (this.x < -this.width) {
+                    this.x = state.canvasWidth + margin;
+                } else if (this.x > state.canvasWidth + margin) {
+                    this.x = -this.width;
+                }
+
+                if (this.y < -this.height) {
+                    this.y = state.canvasHeight + margin;
+                } else if (this.y > state.canvasHeight + margin) {
+                    this.y = -this.height;
+                }
+            }
+
+            draw() {
+                ctx.save();
+                
+                // 平移至紙片中心點
+                ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+                
+                // 3D 投影擬態
+                ctx.rotate(this.angle);
+                
+                // 計算 3D 旋轉下的縮放比 (模擬空間感)
+                const scaleX = Math.cos(this.angleY);
+                const scaleY = Math.cos(this.angleX);
+                
+                // 如果翻轉到背面，依然可以看到半透明名字
+                const absScaleX = Math.abs(scaleX);
+                const absScaleY = Math.abs(scaleY);
+                
+                ctx.scale(scaleX, scaleY);
+
+                // 繪製紙片卡片本體 (當 Hover 時增強發光感)
+                ctx.shadowColor = this.isHovered ? 'rgba(255, 255, 255, 0.7)' : this.shadowColor;
+                ctx.shadowBlur = this.isHovered ? 25 : 10;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 4;
+
+                // 漸變填充
+                const gradient = ctx.createLinearGradient(-this.width/2, -this.height/2, this.width/2, this.height/2);
+                gradient.addColorStop(0, this.color);
+                gradient.addColorStop(1, 'rgba(15, 23, 42, 0.9)'); // 深色內襯增加質感
+                
+                ctx.fillStyle = gradient;
+                ctx.strokeStyle = this.isHovered ? '#ffffff' : this.borderColor;
+                ctx.lineWidth = this.isHovered ? 2.5 : 1.5;
+
+                // 繪製圓角矩形紙片
+                const radius = 10;
+                const w = this.width;
+                const h = this.height;
+                
+                ctx.beginPath();
+                ctx.roundRect(-w/2, -h/2, w, h, radius);
+                ctx.fill();
+                ctx.stroke();
+
+                // 繪製文字 (當極端旋轉摺疊時不畫文字，避免字體反轉模糊)
+                if (absScaleX > 0.1 && absScaleY > 0.1) {
+                    ctx.shadowBlur = 0; // 字體不帶殘影
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = `bold ${this.fontSize}px 'Noto Sans TC'`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(this.name, 0, 0);
+                }
+
+                ctx.restore();
+            }
+
+            // 檢查點擊與懸停是否命中
+            checkCollision(mx, my) {
+                // 將滑鼠座標旋轉回紙片的局部坐標系中做精準 OBB 碰撞檢測
+                const dx = mx - (this.x + this.width / 2);
+                const dy = my - (this.y + this.height / 2);
+                
+                // 逆旋轉
+                const rx = dx * Math.cos(-this.angle) - dy * Math.sin(-this.angle);
+                const ry = dx * Math.sin(-this.angle) + dy * Math.cos(-this.angle);
+
+                // 考慮到 3D 縮放，局部坐標也必須做縮放計算
+                const localW = this.width / 2;
+                const localH = this.height / 2;
+
+                return (rx >= -localW && rx <= localW && ry >= -localH && ry <= localH);
+            }
+        }
+
+        // --- 絢麗灑落粒子類別 (Confetti) ---
+        class Confetti {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.size = Math.random() * 8 + 5;
+                this.color = `hsl(${Math.random() * 360}, 100%, 60%)`;
+                
+                // 向上爆發後向下落
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 8 + 4;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed - 3; // 額外向上速度
+                
+                this.rotation = Math.random() * 360;
+                this.rotationSpeed = (Math.random() - 0.5) * 10;
+                this.gravity = 0.25;
+                this.opacity = 1;
+                this.fade = 0.015 + Math.random() * 0.01;
+            }
+
+            update() {
+                this.vy += this.gravity;
+                this.x += this.vx;
+                this.y += this.vy;
+                this.rotation += this.rotationSpeed;
+                this.opacity -= this.fade;
+            }
+
+            draw() {
+                if (this.opacity <= 0) return;
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation * Math.PI / 180);
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = this.opacity;
+                // 畫不同形狀
+                if (Math.random() > 0.5) {
+                    ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
+                } else {
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.size/2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        // --- 核心初始化與重置 ---
+        function init() {
+            resizeCanvas();
+            
+            // 讀取本地儲存
+            const savedNames = localStorage.getItem('luckyDrawNames');
+            const savedHistory = localStorage.getItem('luckyDrawHistory');
+            
+            if (savedNames) {
+                state.names = JSON.parse(savedNames);
+            } else {
+                state.names = [...DEMO_NAMES];
+            }
+
+            if (savedHistory) {
+                state.history = JSON.parse(savedHistory);
+            }
+
+            // 更新設定輸入框內容
+            namesInput.value = state.names.join('\n');
+            
+            resetPapers();
+            updateStatsUI();
+            updateHistoryUI();
+            
+            // 引導提示觸發
+            setTimeout(() => {
+                if (state.papers.length > 0 && !state.isDrawing) {
+                    showToast();
+                }
+            }, 2500);
+        }
+
+        // 當調整視窗大小時自適應
+        function resizeCanvas() {
+            state.canvasWidth = window.innerWidth;
+            state.canvasHeight = window.innerHeight;
+            canvas.width = state.canvasWidth;
+            canvas.height = state.canvasHeight;
+        }
+
+        // 重新分配空中紙片 (排除已中籤名單)
+        function resetPapers() {
+            state.papers = [];
+            const remainingNames = state.names.filter(n => !state.history.includes(n));
+            
+            remainingNames.forEach(name => {
+                state.papers.push(new Paper(name));
+            });
+        }
+
+        // --- UI 更新函式 ---
+        function updateStatsUI() {
+            statsTotal.textContent = state.names.length;
+            statsFlying.textContent = state.papers.length;
+            statsDrawn.textContent = state.history.length;
+        }
+
+        function updateHistoryUI() {
+            historyContainer.innerHTML = '';
+            if (state.history.length === 0) {
+                historyContainer.innerHTML = `<span class="text-slate-500 italic">目前沒有歷史紀錄</span>`;
+                return;
+            }
+            
+            state.history.forEach(name => {
+                const badge = document.createElement('span');
+                badge.className = 'px-2 py-1 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded flex items-center space-x-1 animate-fade-in';
+                badge.innerHTML = `<i class="fas fa-check text-[10px]"></i> <span>${name}</span>`;
+                historyContainer.appendChild(badge);
+            });
+        }
+
+        function showToast() {
+            guideToast.classList.remove('translate-y-20', 'opacity-0');
+            guideToast.classList.add('translate-y-0', 'opacity-100');
+            // 6秒後自動收起
+            setTimeout(() => {
+                hideToast();
+            }, 6000);
+        }
+
+        function hideToast() {
+            guideToast.classList.remove('translate-y-0', 'opacity-100');
+            guideToast.classList.add('translate-y-20', 'opacity-0');
+        }
+
+        // --- 滑鼠/觸控事件處理 ---
+        let lastMousePos = { x: 0, y: 0 };
+        
+        function handleMove(clientX, clientY) {
+            if (state.isDrawing) return;
+            
+            let hoveredAny = false;
+            
+            // 從最頂層的紙片往前掃描 (後繪製的在頂層)
+            for (let i = state.papers.length - 1; i >= 0; i--) {
+                const paper = state.papers[i];
+                const collision = paper.checkCollision(clientX, clientY);
+                
+                if (collision && !hoveredAny) {
+                    if (!paper.isHovered) {
+                        paper.isHovered = true;
+                        playSound('hover');
+                    }
+                    hoveredAny = true; // 頂層碰到了，下方不重複觸發 hovered
+                } else {
+                    paper.isHovered = false;
+                }
+            }
+
+            // 修改鼠標狀態
+            canvas.style.cursor = hoveredAny ? 'pointer' : 'default';
+        }
+
+        function handlePress(clientX, clientY) {
+            if (state.isDrawing) return;
+
+            // 搜尋是否點中紙片
+            for (let i = state.papers.length - 1; i >= 0; i--) {
+                const paper = state.papers[i];
+                if (paper.checkCollision(clientX, clientY)) {
+                    triggerWinner(paper.name, i);
+                    break;
+                }
+            }
+        }
+
+        // --- 中籤儀式核心邏輯 ---
+        function triggerWinner(name, index) {
+            state.isDrawing = true;
+            state.winner = name;
+            
+            // 播放得獎音效
+            playSound('win');
+            hideToast();
+
+            // 1. 將被點中的紙片從飛舞陣列移除
+            if (index !== undefined) {
+                state.papers.splice(index, 1);
+            }
+
+            // 2. 加入歷史紀錄
+            if (!state.history.includes(name)) {
+                state.history.push(name);
+                localStorage.setItem('luckyDrawHistory', JSON.stringify(state.history));
+            }
+
+            // 3. 爆發滿螢幕碎紙花
+            const spawnX = state.canvasWidth / 2;
+            const spawnY = state.canvasHeight / 2 - 100;
+            for (let i = 0; i < 120; i++) {
+                state.confetti.push(new Confetti(spawnX, spawnY));
+            }
+
+            // 4. 展現巨大結果 Modal 與炫目動畫
+            winnerName.textContent = name;
+            resultModal.classList.remove('opacity-0', 'pointer-events-none');
+            
+            // 稍微延遲讓 Modal 縮放更加平滑生動
+            setTimeout(() => {
+                resultCard.classList.remove('scale-50', 'opacity-0');
+                resultCard.classList.add('scale-100', 'opacity-100');
+            }, 50);
+
+            updateStatsUI();
+            updateHistoryUI();
+        }
+
+        // 關閉中籤結果，繼續抽下一個
+        function closeWinnerResult() {
+            if (!state.isDrawing) return;
+            
+            playSound('click');
+            
+            // 先縮回
+            resultCard.classList.remove('scale-100', 'opacity-100');
+            resultCard.classList.add('scale-50', 'opacity-0');
+            
+            setTimeout(() => {
+                resultModal.classList.add('opacity-0', 'pointer-events-none');
+                state.isDrawing = false;
+                state.winner = null;
+                
+                // 如果沒剩餘紙片了，自動彈出設定
+                if (state.papers.length === 0) {
+                    setTimeout(() => {
+                        openModal(configModal);
+                    }, 500);
+                }
+            }, 300);
+        }
+
+        // --- 動畫渲染循環 ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // 清屏 (帶點微弱尾跡效果，製造動態模糊美感)
+            ctx.fillStyle = 'rgba(11, 15, 25, 0.25)';
+            ctx.fillRect(0, 0, state.canvasWidth, state.canvasHeight);
+
+            // 1. 繪製並更新所有飛舞紙片
+            state.papers.forEach(paper => {
+                paper.update();
+                paper.draw();
+            });
+
+            // 2. 繪製並更新所有灑落紙花
+            for (let i = state.confetti.length - 1; i >= 0; i--) {
+                const conf = state.confetti[i];
+                conf.update();
+                conf.draw();
+                // 移除淡出透明的粒子
+                if (conf.opacity <= 0) {
+                    state.confetti.splice(i, 1);
+                }
+            }
+
+            // 3. 在得獎情況下持續從中央飄灑少量彩紙，維持慶祝氛圍
+            if (state.isDrawing && Math.random() < 0.15 && state.confetti.length < 150) {
+                state.confetti.push(new Confetti(
+                    Math.random() * state.canvasWidth,
+                    -10
+                ));
+            }
+        }
+
+        // --- 視窗開關助手 ---
+        function openModal(modal) {
+            playSound('click');
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            const card = modal.querySelector('.glass-panel');
+            if (card) {
+                card.classList.remove('scale-95');
+                card.classList.add('scale-100');
+            }
+        }
+
+        function closeModal(modal) {
+            playSound('click');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+            const card = modal.querySelector('.glass-panel');
+            if (card) {
+                card.classList.remove('scale-100');
+                card.classList.add('scale-95');
+            }
+        }
+
+        // --- 監聽事件綁定 ---
+        
+        // 滑鼠與觸控事件
+        canvas.addEventListener('mousemove', (e) => {
+            handleMove(e.clientX, e.clientY);
+        });
+
+        canvas.addEventListener('mousedown', (e) => {
+            handlePress(e.clientX, e.clientY);
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                handleMove(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, { passive: true });
+
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 0) {
+                handlePress(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, { passive: true });
+
+        // 按鈕控制
+        toggleConfigBtn.addEventListener('click', () => openModal(configModal));
+        closeConfigBtn.addEventListener('click', () => closeModal(configModal));
+        helpBtn.addEventListener('click', () => openModal(helpModal));
+        closeHelpBtn.addEventListener('click', () => closeModal(helpModal));
+        
+        // 點選結果 modal 任意處關閉並繼續
+        resultModal.addEventListener('click', closeWinnerResult);
+
+        // 音效開關
+        toggleSoundBtn.addEventListener('click', () => {
+            state.soundEnabled = !state.soundEnabled;
+            if (state.soundEnabled) {
+                soundIcon.className = 'fas fa-volume-up text-lg text-emerald-400';
+                playSound('click');
+            } else {
+                soundIcon.className = 'fas fa-volume-mute text-lg text-rose-400';
+            }
+        });
+
+        // 載入範例名單
+        loadDemoBtn.addEventListener('click', () => {
+            playSound('click');
+            namesInput.value = DEMO_NAMES.join('\n');
+        });
+
+        // 滑桿事件 (修改比例係數，讓滑動更細緻，適合更慢的速度調整)
+        speedSlider.addEventListener('input', (e) => {
+            state.speedMultiplier = parseFloat(e.target.value) / 4.0;
+            // 立即應用速度到現有紙片
+            state.papers.forEach(p => {
+                p.vx = (Math.random() - 0.5) * 1.5 * state.speedMultiplier;
+                p.vy = (Math.random() - 0.5) * 1.5 * state.speedMultiplier;
+            });
+        });
+
+        fontSizeSlider.addEventListener('input', (e) => {
+            state.fontSize = parseInt(e.target.value);
+            state.papers.forEach(p => {
+                p.fontSize = state.fontSize;
+                p.updateDimensions();
+            });
+        });
+
+        // 清除歷史紀錄
+        resetHistoryBtn.addEventListener('click', () => {
+            playSound('click');
+            state.history = [];
+            localStorage.removeItem('luckyDrawHistory');
+            updateHistoryUI();
+            updateStatsUI();
+            resetPapers();
+        });
+
+        // 套用新名單並重置
+        applyNamesBtn.addEventListener('click', () => {
+            const rawText = namesInput.value;
+            // 正則切分：換行、逗號、半角/全角空格
+            const parsed = rawText.split(/[\n,，\s]+/)
+                .map(n => n.trim())
+                .filter(n => n.length > 0);
+
+            // 去重複
+            const uniqueNames = [...new Set(parsed)];
+
+            if (uniqueNames.length === 0) {
+                // 自訂訊息框替代 alert()
+                const originalPlaceholder = namesInput.placeholder;
+                namesInput.placeholder = "請至少輸入一個名字！";
+                namesInput.classList.add('border-rose-500');
+                setTimeout(() => {
+                    namesInput.placeholder = originalPlaceholder;
+                    namesInput.classList.remove('border-rose-500');
+                }, 2000);
+                return;
+            }
+
+            state.names = uniqueNames;
+            localStorage.setItem('luckyDrawNames', JSON.stringify(state.names));
+            
+            // 清空歷史中籤（因為名單更換了）
+            state.history = [];
+            localStorage.removeItem('luckyDrawHistory');
+
+            resetPapers();
+            updateStatsUI();
+            updateHistoryUI();
+            closeModal(configModal);
+            
+            // 重新顯示點擊導引
+            showToast();
+        });
+
+        // 視窗 resize 處理
+        window.addEventListener('resize', resizeCanvas);
+
+        // --- 啟動與載入 ---
+        window.onload = function() {
+            init();
+            animate();
+        };
+    </script>
+</body>
+</html>
